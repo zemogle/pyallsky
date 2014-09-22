@@ -1,4 +1,3 @@
-import sys
 import serial
 import time
 import logging
@@ -9,19 +8,26 @@ from astropy.io import fits
 
 # Test Commands
 COM_TEST = 'E'
+
+# Shutter Commands
 OPEN_SHUTTER = 'O'
 CLOSE_SHUTTER = 'C'
 DE_ENERGIZE = 'K'
 
+# Heater Commands
+HEATER_ON = 'g\x01'
+HEATER_OFF = 'g\x00'
+
 # Setup Commands
 GET_FVERSION = 'V'
-BAUD_RATE = {9600 : 'B0',
-             19200 : 'B1',
-             38400 : 'B2',
-             57600 : 'B3',
-             115200 : 'B4',
-             230400 : 'B5',
-             460800 : 'B6'}
+GET_SERIAL = 'r'
+BAUD_RATE = {9600: 'B0',
+             19200: 'B1',
+             38400: 'B2',
+             57600: 'B3',
+             115200: 'B4',
+             230400: 'B5',
+             460800: 'B6'}
 
 # Imaging Commands
 TAKE_IMAGE = 'T'
@@ -45,6 +51,7 @@ TERMINATOR = chr(0x1A)
 # Other Constants
 PIXEL_SIZE = 2
 
+
 def checksum(command):
     """
     Return the command with the checksum byte added
@@ -60,11 +67,13 @@ def checksum(command):
         cs = cs ^ csb
     return chr(cs)
 
-def hexify(s):
+
+def hexify(s, join_char=':'):
     """
     Print a string as hex values
     """
-    return":".join(c.encode('hex') for c in s)
+    return join_char.join(c.encode('hex') for c in s)
+
 
 class AllSkyCamera():
     """
@@ -72,14 +81,14 @@ class AllSkyCamera():
     protocol, and providing a pythonic api to access the device
     """
     def __init__(self, device):
-        ser = serial.Serial('/dev/tty.usbserial')
+        ser = serial.Serial(device)
 
         # Camera baud rate is initially unknown, so find it
         found = False
         for rate in sorted(BAUD_RATE, key=BAUD_RATE.get)[:-2]:
             logging.debug('Testing : {}'.format(rate))
             ser.baudrate = rate
-            ser.write(checksum(COM_TEST))
+            ser.write(COM_TEST + checksum(COM_TEST))
             time.sleep(0.1)
             # Expect a 2 byte response for this command
             if ser.inWaiting():
@@ -139,6 +148,44 @@ class AllSkyCamera():
         v = self._ser.read(2)
         return hexify(v)
 
+    def serial_number(self):
+        """
+        Returns the camera's serial number
+        """
+        self._send_command(GET_SERIAL)
+        v = self._ser.read(10)
+        return hexify(v, '')
+
+    def open_shutter(self):
+        """
+        Open the camera shutter.
+        n.b. leaves the shutter motor energized
+        """
+        self._send_command(OPEN_SHUTTER)
+        time.sleep(1)
+        self._send_command(DE_ENERGIZE)
+
+    def close_shutter(self):
+        """
+        Close the camera shutter.
+        n.b. leaves the shutter motor energized
+        """
+        self._send_command(CLOSE_SHUTTER)
+        time.sleep(1)
+        self._send_command(DE_ENERGIZE)
+
+    def activate_heater(self):
+        """
+        Activate the built in heater
+        """
+        cmd=['g','\x01']
+
+    def deactivate_heater(self):
+        """
+        Deactivate the built in heater
+        """
+        pass
+
     def calibrate_guider(self):
         """
         Request the camera to automatically calibrate the guider.
@@ -166,7 +213,6 @@ class AllSkyCamera():
             response += a
 
         return response
-
 
     def _get_image_block(self, expected=4096, ignore_cs=False):
         """
@@ -196,7 +242,7 @@ class AllSkyCamera():
                 valid = True
 
             if cs_failed > 0:
-                logging.error('Checksum failed {} times'.format(cs_level))
+                logging.error('Checksum failed')
         logging.debug('Processed {} bytes'.format(len(data)))
         return data
 
@@ -247,7 +293,7 @@ class AllSkyCamera():
         head['DATE-OBS'] = timestamp
 
         # Now make into a fits image
-        data = np.fromstring(data, dtype=np.int16)
+        data = np.fromstring(data, dtype=np.uint16)
         data = data.reshape((480, 640))
         hdu = fits.PrimaryHDU(data, header=head)
 
