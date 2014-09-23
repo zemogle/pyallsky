@@ -1,10 +1,10 @@
 from allsky import AllSkyCamera
 import serial
-import argparse, sys
+import argparse, sys, shutil
 import aplpy
 from datetime import datetime
 
-IMAGE_DIR = '/local/filesystem/path'
+IMAGE_DIR = '/home/pi/fits/'
 
 def capture_image(device, exposure_time, savefile):
     try:
@@ -19,6 +19,8 @@ def capture_image(device, exposure_time, savefile):
             path = os.join(IMAGE_DIR,filename)
         image.writeto(path)
         make_png(path)
+	latest = os.join(IMAGE_DIR,"latest.jpg")
+	shutil.copy(path,latest)
     except serial.serialutil.SerialException as err:
         print(str(err))
         sys.exit(2)
