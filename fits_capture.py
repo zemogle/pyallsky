@@ -1,8 +1,8 @@
 from allsky import AllSkyCamera
 import serial
 import argparse, sys, shutil
-import aplpy
-import pyephem, datetime
+import f2n
+import ephem
 from datetime import datetime
 
 IMAGE_DIR = '/home/pi/fits/'
@@ -29,26 +29,35 @@ def capture_image(device, exposure_time, savefile):
         sys.exit(2)
 
 def twilight(lat,lon):
+    ''' Returns True is viewing location is in darkness '''
     now = datetime.now().strftime("%Y/%m/%d %H:%M")
     brecon = ephem.Observer()
     brecon.lat, brecon.lon = lat, lon
-    brecon.horizon = '-12'
-    rise = brecon.previous_rising(ephem.Sun(), use_center=True)
-    sunset = brecon.next_setting(ephem.Sun(), use_center=True)
+    brecon.horizon = '-12' # set to Nautical Twilight
+    rise = brecon.next_rising(ephem.Sun(), use_center=True)
+    sunset = brecon.previous_setting(ephem.Sun(), use_center=True)
     rise_tp = rise.tuple()
     rise_dt = datetime(rise_tp[0],rise_tp[1],rise_tp[2],rise_tp[3],rise_tp[4])
     sunset_tp = sunset.tuple()
     sunset_dt = datetime(sunset_tp[0],sunset_tp[1],sunset_tp[2],sunset_tp[3],sunset_tp[4])
-    if rise_dt < now and sunset_dt > now:
+    if rise - sunset > 1.0:
+        # In this case we're getting Sunset from the previous day and it is currently day
+        return False
+    elif sunset_dt <= now and rise_tp >= now:
         return True
     else:
         return False
 
 def make_png(filename):
-    fig = aplpy.FITSFigure(filename)
-    fig.show_grayscale()
-    filepng = filename.replace('.fits','.png')
-    fig.save(filepng)
+    myimage = f2n.fromfits(filename)
+    myimage.makepilimage("log", negative = False)
+    try:
+        filepng = filename.replace('.fits','.png')
+        myimage.tonet(filepng)
+    except Exception, err:
+        print(str(err))
+        sys.exit(2)
+    return True
 
 def main():
     parser = argparse.ArgumentParser()
